@@ -36,14 +36,6 @@ threading.Thread(target=run_web_server, daemon=True).start()
 # Reply Keyboard
 keyboard = ReplyKeyboardMarkup([["📁 Content"]], resize_keyboard=True)
 
-async def ensure_bot_knows_channel():
-    """Ensure the bot has access to the channel to prevent PEER_ID_INVALID errors."""
-    try:
-        chat = await bot.get_chat(CHANNEL_ID)
-        logging.info(f"✅ Bot is aware of channel: {chat.title}")
-    except Exception as e:
-        logging.error(f"❌ Error accessing channel: {e}")
-
 @bot.on_message(filters.command("start"))
 async def start(bot, message):
     await message.reply_text("Welcome! Click '📁 Content' to get a random file.", reply_markup=keyboard)
@@ -63,13 +55,11 @@ async def index_files(bot, message):
         return
 
     try:
-        await ensure_bot_knows_channel()  # Ensure bot knows the channel
-        indexed = 0
-        async for msg in bot.get_chat_history(CHANNEL_ID, limit=1000):
+        async for msg in bot.search_messages(CHANNEL_ID, limit=1000):
             if msg.document or msg.video or msg.photo:
-                await add_file(msg.document.file_id if msg.document else msg.video.file_id if msg.video else msg.photo.file_id)
-                indexed += 1
-        await message.reply_text(f"✅ Indexed {indexed} files.")
+                file_id = msg.document.file_id if msg.document else msg.video.file_id if msg.video else msg.photo.file_id
+                await add_file(file_id)
+        await message.reply_text("✅ Indexing complete.")
     except Exception as e:
         logging.error(f"Error in /index: {e}")
         await message.reply_text(f"❌ Error: {e}")
@@ -100,5 +90,4 @@ async def delete_all(bot, message):
         logging.error(f"Error in /delete_all: {e}")
         await message.reply_text(f"❌ Error: {e}")
 
-# Start the bot
 bot.run()

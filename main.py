@@ -55,11 +55,14 @@ async def index_files(bot, message):
         return
 
     try:
-        async for msg in bot.search_messages(CHANNEL_ID, limit=1000):
+        indexed = 0
+        async for msg in bot.get_chat_history(CHANNEL_ID, limit=500):
             if msg.document or msg.video or msg.photo:
                 file_id = msg.document.file_id if msg.document else msg.video.file_id if msg.video else msg.photo.file_id
                 await add_file(file_id)
-        await message.reply_text("✅ Indexing complete.")
+                indexed += 1
+
+        await message.reply_text(f"✅ Indexed {indexed} files.")
     except Exception as e:
         logging.error(f"Error in /index: {e}")
         await message.reply_text(f"❌ Error: {e}")

@@ -1,8 +1,8 @@
 import os
 
-BOT_TOKEN = ""
-API_ID = "YOUR_API_ID"
-API_HASH = "YOUR_API_HASH"
+BOT_TOKEN = "7888029778:AAHeC7P5zONGjN3mY5q0Rm6-V1zzPx1ywEQ"
+API_ID = "27788368"
+API_HASH = "9df7e9ef3d7e4145270045e5e43e1081"
 MONGO_URL = "YOUR_MONGODB_URL"
-CHANNEL_ID = -1001234567890  # Replace with your Telegram channel ID
-OWNER_ID = 123456789  # Replace with your Telegram user ID
+CHANNEL_ID = "-1002242458059"  # Replace with your Telegram channel ID
+OWNER_ID = "6860316927"  # Replace with your Telegram user ID

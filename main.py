@@ -7,10 +7,12 @@ from fastapi import FastAPI
 import uvicorn
 import threading
 
+# Initialize bot
 bot = Client("BotSession", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+# FastAPI Server for Koyeb Health Check
 app = FastAPI()
 
-# Dummy Web Server for Koyeb Health Check
 @app.get("/")
 async def home():
     return {"status": "running"}
@@ -37,21 +39,30 @@ async def send_random_file(bot, message):
 
 @bot.on_message(filters.command("index") & filters.user(OWNER_ID))
 async def index_files(bot, message):
-    indexed = 0
-    async for msg in bot.get_chat_history(CHANNEL_ID, limit=1000):
-        if msg.document or msg.video or msg.photo:
-            await add_file(msg.document.file_id if msg.document else msg.video.file_id if msg.video else msg.photo.file_id)
-            indexed += 1
-    await message.reply_text(f"Indexed {indexed} files.")
+    try:
+        indexed = 0
+        async for msg in bot.get_chat_history(CHANNEL_ID, limit=1000):
+            if msg.document or msg.video or msg.photo:
+                await add_file(msg.document.file_id if msg.document else msg.video.file_id if msg.video else msg.photo.file_id)
+                indexed += 1
+        await message.reply_text(f"✅ Indexed {indexed} files.")
+    except Exception as e:
+        await message.reply_text(f"❌ Error: {e}")
 
 @bot.on_message(filters.command("status") & filters.user(OWNER_ID))
 async def status(bot, message):
-    total = await get_total_files()
-    await message.reply_text(f"Total files indexed: {total}")
+    try:
+        total = await get_total_files()
+        await message.reply_text(f"📊 Total files indexed: {total}")
+    except Exception as e:
+        await message.reply_text(f"❌ Error: {e}")
 
 @bot.on_message(filters.command("delete_all") & filters.user(OWNER_ID))
 async def delete_all(bot, message):
-    await delete_all_files()
-    await message.reply_text("All indexed files have been deleted.")
+    try:
+        await delete_all_files()
+        await message.reply_text("🗑️ All indexed files have been deleted.")
+    except Exception as e:
+        await message.reply_text(f"❌ Error: {e}")
 
 bot.run()

@@ -29,12 +29,20 @@ async def home():
     return {"status": "running"}
 
 def run_web_server():
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")
 
 threading.Thread(target=run_web_server, daemon=True).start()
 
 # Reply Keyboard
 keyboard = ReplyKeyboardMarkup([["📁 Content"]], resize_keyboard=True)
+
+async def ensure_bot_knows_channel():
+    """Ensure the bot has access to the channel to prevent PEER_ID_INVALID errors."""
+    try:
+        chat = await bot.get_chat(CHANNEL_ID)
+        logging.info(f"✅ Bot is aware of channel: {chat.title}")
+    except Exception as e:
+        logging.error(f"❌ Error accessing channel: {e}")
 
 @bot.on_message(filters.command("start"))
 async def start(bot, message):
@@ -55,6 +63,7 @@ async def index_files(bot, message):
         return
 
     try:
+        await ensure_bot_knows_channel()  # Ensure bot knows the channel
         indexed = 0
         async for msg in bot.get_chat_history(CHANNEL_ID, limit=1000):
             if msg.document or msg.video or msg.photo:
@@ -91,4 +100,5 @@ async def delete_all(bot, message):
         logging.error(f"Error in /delete_all: {e}")
         await message.reply_text(f"❌ Error: {e}")
 
+# Start the bot
 bot.run()

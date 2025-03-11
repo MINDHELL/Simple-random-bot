@@ -3,8 +3,22 @@ from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup
 from config import BOT_TOKEN, API_ID, API_HASH, CHANNEL_ID, OWNER_ID
 from database import add_file, get_random_file, get_total_files, delete_all_files
+from fastapi import FastAPI
+import uvicorn
+import threading
 
 bot = Client("BotSession", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = FastAPI()
+
+# Dummy Web Server for Koyeb Health Check
+@app.get("/")
+async def home():
+    return {"status": "running"}
+
+def run_web_server():
+    uvicorn.run(app, host="0.0.0.0", port=8080)
+
+threading.Thread(target=run_web_server, daemon=True).start()
 
 # Reply Keyboard
 keyboard = ReplyKeyboardMarkup([["📁 Content"]], resize_keyboard=True)

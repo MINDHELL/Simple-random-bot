@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup
 from config import BOT_TOKEN, API_ID, API_HASH, CHANNEL_ID, OWNER_ID
@@ -7,10 +8,20 @@ from fastapi import FastAPI
 import uvicorn
 import threading
 
+# Enable Logging
+logging.basicConfig(level=logging.INFO)
+
+# Convert OWNER_ID to int if it's a string
+try:
+    OWNER_ID = int(OWNER_ID)
+except ValueError:
+    logging.error("OWNER_ID must be an integer!")
+    exit()
+
 # Initialize bot
 bot = Client("BotSession", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# FastAPI Server for Koyeb Health Check
+# FastAPI Health Check
 app = FastAPI()
 
 @app.get("/")
@@ -37,8 +48,12 @@ async def send_random_file(bot, message):
     else:
         await message.reply_text("No files available. Please wait for indexing.")
 
-@bot.on_message(filters.command("index") & filters.user(OWNER_ID))
+@bot.on_message(filters.command("index"))
 async def index_files(bot, message):
+    if message.from_user.id != OWNER_ID:
+        await message.reply_text("❌ You are not authorized to use this command.")
+        return
+
     try:
         indexed = 0
         async for msg in bot.get_chat_history(CHANNEL_ID, limit=1000):
@@ -47,22 +62,33 @@ async def index_files(bot, message):
                 indexed += 1
         await message.reply_text(f"✅ Indexed {indexed} files.")
     except Exception as e:
+        logging.error(f"Error in /index: {e}")
         await message.reply_text(f"❌ Error: {e}")
 
-@bot.on_message(filters.command("status") & filters.user(OWNER_ID))
+@bot.on_message(filters.command("status"))
 async def status(bot, message):
+    if message.from_user.id != OWNER_ID:
+        await message.reply_text("❌ You are not authorized to use this command.")
+        return
+
     try:
         total = await get_total_files()
         await message.reply_text(f"📊 Total files indexed: {total}")
     except Exception as e:
+        logging.error(f"Error in /status: {e}")
         await message.reply_text(f"❌ Error: {e}")
 
-@bot.on_message(filters.command("delete_all") & filters.user(OWNER_ID))
+@bot.on_message(filters.command("delete_all"))
 async def delete_all(bot, message):
+    if message.from_user.id != OWNER_ID:
+        await message.reply_text("❌ You are not authorized to use this command.")
+        return
+
     try:
         await delete_all_files()
         await message.reply_text("🗑️ All indexed files have been deleted.")
     except Exception as e:
+        logging.error(f"Error in /delete_all: {e}")
         await message.reply_text(f"❌ Error: {e}")
 
 bot.run()

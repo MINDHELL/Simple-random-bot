@@ -30,11 +30,11 @@ videos_col = db["videos"]
 users_col = db["users"]
 
 # Check if user is subscribed (Force Subscribe)
-def is_user_subscribed(user_id):
+async def is_user_subscribed(user_id):
     if not FSUB_CHANNEL:
         return True  # Skip check if no channel set
     try:
-        member = bot.get_chat_member(FSUB_CHANNEL, user_id)
+        member = await bot.get_chat_member(FSUB_CHANNEL, user_id)
         return member.status in ["member", "administrator", "creator"]
     except RPCError:
         return False  # Assume not subscribed
@@ -44,7 +44,7 @@ def is_user_subscribed(user_id):
 async def start(client, message):
     user_id = message.chat.id
 
-    if FSUB_CHANNEL and not is_user_subscribed(user_id):
+    if FSUB_CHANNEL and not await is_user_subscribed(user_id):
         await message.reply_text(
             f"🚨 You must join our channel to use this bot!\n\n🔗 [Join Here](https://t.me/{FSUB_CHANNEL})",
             disable_web_page_preview=True
@@ -53,22 +53,20 @@ async def start(client, message):
     
     await message.reply_text("✅ Welcome! Use /random to get a random video.")
 
-# /index Command (Owner Only) - Optimized for Large Channels (1K+ Videos)
+# /index Command (Owner Only) - Now Supports 1K+ Videos
 @bot.on_message(filters.command("index") & filters.user(OWNER_ID))
 async def index_channel(client, message):
     try:
         chat = await client.get_chat(CHANNEL_ID)
         count = 0
-        last_message_id = 0  # Track last processed message ID
+        last_message_id = 0  # Start from the latest message
 
-        while True:  # Keep fetching until no more messages
-            messages = await client.search_messages(
-                chat_id=chat.id, filter="video", limit=100, offset_id=last_message_id
-            )
-            
-            if not messages:
-                break  # Stop when no more videos are found
-            
+        while True:  # Keep fetching messages until all videos are indexed
+            messages = await client.get_chat_history(chat_id=chat.id, limit=100, offset_id=last_message_id)
+
+            if not messages:  # Stop if no more messages
+                break
+
             for msg in messages:
                 if msg.video and not videos_col.find_one({"file_id": msg.video.file_id}):
                     videos_col.insert_one({
@@ -78,7 +76,7 @@ async def index_channel(client, message):
                     })
                     count += 1
 
-                last_message_id = msg.message_id  # Update last processed message
+                last_message_id = msg.message_id  # Update last message ID for pagination
 
         await message.reply_text(f"✅ Indexed {count} new videos!")
 
@@ -92,7 +90,7 @@ async def index_channel(client, message):
 async def send_random_video(client, message):
     user_id = message.chat.id
 
-    if FSUB_CHANNEL and not is_user_subscribed(user_id):
+    if FSUB_CHANNEL and not await is_user_subscribed(user_id):
         await message.reply_text(
             f"🚨 You must join our channel to use this bot!\n\n🔗 [Join Here](https://t.me/{FSUB_CHANNEL})",
             disable_web_page_preview=True
@@ -105,7 +103,12 @@ async def send_random_video(client, message):
         sent_message = await message.reply_video(video=video["file_id"], caption=video["title"])
         
         if AUTO_DELETE_TIME > 0:
-            await bot.delete_messages(chat_id=message.chat.id, message_ids=[sent_message.message_id], revoke=True, schedule_date=int(time.time()) + AUTO_DELETE_TIME)
+            await bot.delete_messages(
+                chat_id=message.chat.id, 
+                message_ids=[sent_message.message_id], 
+                revoke=True, 
+                schedule_date=int(time.time()) + AUTO_DELETE_TIME
+            )
     else:
         await message.reply_text("⚠ No videos found. Use /index to add videos.")
 

@@ -1,5 +1,3 @@
-
-
 import os
 import threading
 import datetime
@@ -59,21 +57,17 @@ def start(client, message):
 def index_channel(client, message):
     try:
         chat = client.get_chat(CHANNEL_ID)  # Ensure bot can access the channel
-        last_message_id = client.get_chat(chat.id).last_message_id  # Get last message ID
+        messages = client.search_messages(chat_id=chat.id, filter="video", limit=100)  # Fetch 100 recent videos
 
         count = 0
-        for msg_id in range(last_message_id, last_message_id - 100, -1):
-            try:
-                msg = client.get_messages(chat.id, msg_id)
-                if msg.video and not videos_col.find_one({"file_id": msg.video.file_id}):
-                    videos_col.insert_one({
-                        "file_id": msg.video.file_id,
-                        "title": msg.caption or "Untitled Video",
-                        "date_added": datetime.datetime.utcnow()
-                    })
-                    count += 1
-            except Exception:
-                continue  # Skip if message does not exist
+        for msg in messages:
+            if msg.video and not videos_col.find_one({"file_id": msg.video.file_id}):
+                videos_col.insert_one({
+                    "file_id": msg.video.file_id,
+                    "title": msg.caption or "Untitled Video",
+                    "date_added": datetime.datetime.utcnow()
+                })
+                count += 1
 
         message.reply_text(f"✅ Indexed {count} new videos!")
 

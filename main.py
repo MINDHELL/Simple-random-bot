@@ -1,14 +1,15 @@
+
+
 import os
-import time
 import threading
 import datetime
 import pymongo
 from flask import Flask
 from pyrogram import Client, filters
-from pyrogram.errors import PeerIdInvalid
+from pyrogram.errors import PeerIdInvalid, RPCError
 from config import API_ID, API_HASH, BOT_TOKEN, MONGO_URL, DATABASE_NAME, CHANNEL_ID, FSUB_CHANNEL, AUTO_DELETE_TIME, OWNER_ID
 
-# ✅ Flask Health Check (Fixes TCP Health Check Failure on Koyeb)
+# Flask Health Check (Fixes TCP Health Check Failure on Koyeb)
 app = Flask(__name__)
 
 @app.route("/")
@@ -16,87 +17,93 @@ def health_check():
     return "Bot is running!", 200  # Required for Koyeb health check
 
 def run_flask():
-    app.run(host="0.0.0.0", port=8080, threaded=True)  # Ensure Flask listens on port 8080
+    app.run(host="0.0.0.0", port=8080)  # Ensure Flask listens on port 8080
 
 threading.Thread(target=run_flask, daemon=True).start()  # Run Flask in a separate thread
 
-# ✅ Initialize Telegram Bot
+# Initialize Telegram Bot
 bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# ✅ Connect to MongoDB
+# Connect to MongoDB
 client = pymongo.MongoClient(MONGO_URL)
 db = client[DATABASE_NAME]
 videos_col = db["videos"]
 users_col = db["users"]
 
-# ✅ Check if user is subscribed (Force Subscribe)
+# Check if user is subscribed (Force Subscribe)
 def is_user_subscribed(user_id):
+    if not FSUB_CHANNEL:
+        return True  # Skip check if no channel set
     try:
         member = bot.get_chat_member(FSUB_CHANNEL, user_id)
         return member.status in ["member", "administrator", "creator"]
-    except:
+    except RPCError:
         return False  # Assume not subscribed
 
-# ✅ /start Command
+# /start Command
 @bot.on_message(filters.command("start"))
-async def start(client, message):
+def start(client, message):
     user_id = message.chat.id
 
     if FSUB_CHANNEL and not is_user_subscribed(user_id):
-        await message.reply_text(
+        message.reply_text(
             f"🚨 You must join our channel to use this bot!\n\n🔗 [Join Here](https://t.me/{FSUB_CHANNEL})",
             disable_web_page_preview=True
         )
         return
     
-    await message.reply_text("✅ Welcome! Use /random to get a random video.")
+    message.reply_text("✅ Welcome! Use /random to get a random video.")
 
-# ✅ /index Command (Owner Only) - Fixed PEER_ID_INVALID Error
+# /index Command (Owner Only) - Fixed BOT_METHOD_INVALID Error
 @bot.on_message(filters.command("index") & filters.user(OWNER_ID))
-async def index_channel(client, message):
+def index_channel(client, message):
     try:
-        # ✅ Ensure bot has met the channel before indexing
-        chat = await client.get_chat(CHANNEL_ID)
-        
-        async for msg in client.get_chat_history(chat.id, limit=100):
-            if msg.video:
-                video_id = msg.video.file_id
-                caption = msg.caption if msg.caption else "Untitled Video"
+        chat = client.get_chat(CHANNEL_ID)  # Ensure bot can access the channel
+        last_message_id = client.get_chat(chat.id).last_message_id  # Get last message ID
 
-                # ✅ Check if video is already indexed
-                if not videos_col.find_one({"file_id": video_id}):
+        count = 0
+        for msg_id in range(last_message_id, last_message_id - 100, -1):
+            try:
+                msg = client.get_messages(chat.id, msg_id)
+                if msg.video and not videos_col.find_one({"file_id": msg.video.file_id}):
                     videos_col.insert_one({
-                        "file_id": video_id,
-                        "title": caption,
+                        "file_id": msg.video.file_id,
+                        "title": msg.caption or "Untitled Video",
                         "date_added": datetime.datetime.utcnow()
                     })
-        
-        await message.reply_text("✅ Successfully indexed videos!")
+                    count += 1
+            except Exception:
+                continue  # Skip if message does not exist
+
+        message.reply_text(f"✅ Indexed {count} new videos!")
 
     except PeerIdInvalid:
-        await message.reply_text("❌ Error: Bot has not interacted with the channel. Forward a message from the channel to the bot first!")
+        message.reply_text("❌ Error: Bot has not interacted with the channel. Forward a message from the channel to the bot first!")
     except Exception as e:
-        await message.reply_text(f"❌ Error: {str(e)}")
+        message.reply_text(f"❌ Error: {str(e)}")
 
-# ✅ /random Command (Get Random Video)
+# /random Command (Get Random Video)
 @bot.on_message(filters.command("random"))
-async def send_random_video(client, message):
+def send_random_video(client, message):
     user_id = message.chat.id
 
-    # ✅ Fetch random video from the database
-    video = list(videos_col.aggregate([{"$sample": {"size": 1}}]))
+    if FSUB_CHANNEL and not is_user_subscribed(user_id):
+        message.reply_text(
+            f"🚨 You must join our channel to use this bot!\n\n🔗 [Join Here](https://t.me/{FSUB_CHANNEL})",
+            disable_web_page_preview=True
+        )
+        return
+
+    video = videos_col.aggregate([{"$sample": {"size": 1}}]).next()
     
     if video:
-        video = video[0]
-        sent_message = await message.reply_video(video=video["file_id"], caption=video["title"])
+        sent_message = message.reply_video(video=video["file_id"], caption=video["title"])
         
-        # ✅ Auto-delete after AUTO_DELETE_TIME
         if AUTO_DELETE_TIME > 0:
-            await asyncio.sleep(AUTO_DELETE_TIME)
-            await client.delete_messages(chat_id=message.chat.id, message_ids=[sent_message.message_id])
+            bot.delete_messages(chat_id=message.chat.id, message_ids=[sent_message.message_id], revoke=True, schedule_date=int(time.time()) + AUTO_DELETE_TIME)
     else:
-        await message.reply_text("⚠ No videos found. Use /index to add videos.")
+        message.reply_text("⚠ No videos found. Use /index to add videos.")
 
-# ✅ Start Bot
+# Start Bot
 if __name__ == "__main__":
     bot.run()

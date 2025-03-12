@@ -8,7 +8,7 @@ from pyrogram import Client, filters
 from pyrogram.errors import PeerIdInvalid
 from config import API_ID, API_HASH, BOT_TOKEN, MONGO_URL, DATABASE_NAME, CHANNEL_ID, FSUB_CHANNEL, AUTO_DELETE_TIME, OWNER_ID
 
-# Flask Health Check (Fixes TCP Health Check Failure on Koyeb)
+# ✅ Flask Health Check (Fixes TCP Health Check Failure on Koyeb)
 app = Flask(__name__)
 
 @app.route("/")
@@ -16,20 +16,20 @@ def health_check():
     return "Bot is running!", 200  # Required for Koyeb health check
 
 def run_flask():
-    app.run(host="0.0.0.0", port=8080)  # Ensure Flask listens on port 8080
+    app.run(host="0.0.0.0", port=8080, threaded=True)  # Ensure Flask listens on port 8080
 
 threading.Thread(target=run_flask, daemon=True).start()  # Run Flask in a separate thread
 
-# Initialize Telegram Bot
+# ✅ Initialize Telegram Bot
 bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Connect to MongoDB
+# ✅ Connect to MongoDB
 client = pymongo.MongoClient(MONGO_URL)
 db = client[DATABASE_NAME]
 videos_col = db["videos"]
 users_col = db["users"]
 
-# Check if user is subscribed (Force Subscribe)
+# ✅ Check if user is subscribed (Force Subscribe)
 def is_user_subscribed(user_id):
     try:
         member = bot.get_chat_member(FSUB_CHANNEL, user_id)
@@ -37,56 +37,66 @@ def is_user_subscribed(user_id):
     except:
         return False  # Assume not subscribed
 
-# /start Command
+# ✅ /start Command
 @bot.on_message(filters.command("start"))
-def start(client, message):
+async def start(client, message):
     user_id = message.chat.id
 
     if FSUB_CHANNEL and not is_user_subscribed(user_id):
-        message.reply_text(f"🚨 You must join our channel to use this bot!\n\n🔗 [Join Here](https://t.me/{FSUB_CHANNEL})", disable_web_page_preview=True)
+        await message.reply_text(
+            f"🚨 You must join our channel to use this bot!\n\n🔗 [Join Here](https://t.me/{FSUB_CHANNEL})",
+            disable_web_page_preview=True
+        )
         return
     
-    message.reply_text("✅ Welcome! Use /random to get a random video.")
+    await message.reply_text("✅ Welcome! Use /random to get a random video.")
 
-# /index Command (Owner Only) - Fixed PEER_ID_INVALID Error
+# ✅ /index Command (Owner Only) - Fixed PEER_ID_INVALID Error
 @bot.on_message(filters.command("index") & filters.user(OWNER_ID))
-def index_channel(client, message):
+async def index_channel(client, message):
     try:
-        chat = client.get_chat(CHANNEL_ID)  # Ensure bot has met the channel
-        messages = client.get_chat_history(chat.id, limit=100)  # Fetch last 100 messages
-
-        for msg in messages:
+        # ✅ Ensure bot has met the channel before indexing
+        chat = await client.get_chat(CHANNEL_ID)
+        
+        async for msg in client.get_chat_history(chat.id, limit=100):
             if msg.video:
-                if not videos_col.find_one({"file_id": msg.video.file_id}):
+                video_id = msg.video.file_id
+                caption = msg.caption if msg.caption else "Untitled Video"
+
+                # ✅ Check if video is already indexed
+                if not videos_col.find_one({"file_id": video_id}):
                     videos_col.insert_one({
-                        "file_id": msg.video.file_id,
-                        "title": msg.caption or "Untitled Video",
+                        "file_id": video_id,
+                        "title": caption,
                         "date_added": datetime.datetime.utcnow()
                     })
-
-        message.reply_text("✅ Successfully indexed videos!")
+        
+        await message.reply_text("✅ Successfully indexed videos!")
 
     except PeerIdInvalid:
-        message.reply_text("❌ Error: Bot has not interacted with the channel. Forward a message from the channel to the bot first!")
+        await message.reply_text("❌ Error: Bot has not interacted with the channel. Forward a message from the channel to the bot first!")
     except Exception as e:
-        message.reply_text(f"❌ Error: {str(e)}")
+        await message.reply_text(f"❌ Error: {str(e)}")
 
-# /random Command (Get Random Video)
+# ✅ /random Command (Get Random Video)
 @bot.on_message(filters.command("random"))
-def send_random_video(client, message):
+async def send_random_video(client, message):
     user_id = message.chat.id
 
-    video = videos_col.aggregate([{"$sample": {"size": 1}}]).next()
+    # ✅ Fetch random video from the database
+    video = list(videos_col.aggregate([{"$sample": {"size": 1}}]))
     
     if video:
-        sent_message = message.reply_video(video=video["file_id"], caption=video["title"])
+        video = video[0]
+        sent_message = await message.reply_video(video=video["file_id"], caption=video["title"])
         
+        # ✅ Auto-delete after AUTO_DELETE_TIME
         if AUTO_DELETE_TIME > 0:
-            time.sleep(1)
-            client.delete_messages(chat_id=message.chat.id, message_ids=[sent_message.message_id], revoke=True, schedule_date=int(time.time()) + AUTO_DELETE_TIME)
+            await asyncio.sleep(AUTO_DELETE_TIME)
+            await client.delete_messages(chat_id=message.chat.id, message_ids=[sent_message.message_id])
     else:
-        message.reply_text("⚠ No videos found. Use /index to add videos.")
+        await message.reply_text("⚠ No videos found. Use /index to add videos.")
 
-# Start Bot
+# ✅ Start Bot
 if __name__ == "__main__":
     bot.run()
